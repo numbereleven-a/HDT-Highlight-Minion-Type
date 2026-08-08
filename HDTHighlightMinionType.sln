@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HDTHighlightMinionType", "src\HDTHighlightMinionType.csproj", "{47B19B48-5A10-46CF-A6B2-1BEF84F61243}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HDTHighlightMinionType.Tests", "tests\HDTHighlightMinionType.Tests.csproj", "{914599A1-9036-4862-910B-BC8945AE68A0}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{47B19B48-5A10-46CF-A6B2-1BEF84F61243}.Debug|x64.ActiveCfg = Debug|x64
+		{47B19B48-5A10-46CF-A6B2-1BEF84F61243}.Debug|x64.Build.0 = Debug|x64
+		{47B19B48-5A10-46CF-A6B2-1BEF84F61243}.Release|x64.ActiveCfg = Release|x64
+		{47B19B48-5A10-46CF-A6B2-1BEF84F61243}.Release|x64.Build.0 = Release|x64
+		{914599A1-9036-4862-910B-BC8945AE68A0}.Debug|x64.ActiveCfg = Debug|x64
+		{914599A1-9036-4862-910B-BC8945AE68A0}.Debug|x64.Build.0 = Debug|x64
+		{914599A1-9036-4862-910B-BC8945AE68A0}.Release|x64.ActiveCfg = Release|x64
+		{914599A1-9036-4862-910B-BC8945AE68A0}.Release|x64.Build.0 = Release|x64
+EndGlobalSection
+EndGlobal
