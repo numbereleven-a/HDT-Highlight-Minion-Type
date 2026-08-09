@@ -30,6 +30,7 @@ The plugin helps you quickly find matching minions without highlighting your han
 * Shows a live preview of the selected highlight style
 * Supports overlay opacity, scale, positioning and position locking
 * Can remain visible or hide during combat while card highlighting stays disabled
+* Ignores Tavern spells by default so they remain visually unchanged
 * Saves settings between HDT sessions
 * Includes a manual update check in the settings window
 * Works locally without telemetry, analytics or gameplay data uploads
@@ -65,6 +66,7 @@ Available settings include:
 * Dim strength
 * All-type minion behavior
 * Neutral button visibility
+* Tavern spell effects
 
 Use the `↻` button beside the installed version to check for a newer GitHub release. The check only runs when the button is pressed and does not download or install files automatically.
 

@@ -87,6 +87,9 @@ namespace HDTHighlightMinionType
 			var neutral = new System.Windows.Controls.CheckBox { Content = "Show Neutral button", IsChecked = _settings.ShowNeutral, Margin = new Thickness(0, 4, 0, 16) };
 			neutral.Click += (_, __) => { _settings.ShowNeutral = neutral.IsChecked == true; Changed(); };
 			content.Children.Add(neutral);
+			var ignoreSpells = new System.Windows.Controls.CheckBox { Content = "Ignore Tavern spells", IsChecked = _settings.IgnoreSpells, Margin = new Thickness(0, -8, 0, 16) };
+			ignoreSpells.Click += (_, __) => { _settings.IgnoreSpells = ignoreSpells.IsChecked == true; Changed(); };
+			content.Children.Add(ignoreSpells);
 
 			var version = new TextBlock { Text = "Version " + DisplayVersion, VerticalAlignment = VerticalAlignment.Center, Foreground = new SolidColorBrush(Color.FromRgb(85, 85, 85)), Margin = new Thickness(9, 0, 0, 0) };
 			var check = new System.Windows.Controls.Button { Content = "↻", ToolTip = "Check for updates", Width = 24, Height = 24, FontSize = 14, Padding = new Thickness(0) };

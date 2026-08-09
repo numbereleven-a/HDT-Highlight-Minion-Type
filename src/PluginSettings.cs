@@ -14,7 +14,7 @@ namespace HDTHighlightMinionType
 
 	public sealed class PluginSettings
 	{
-		private const int CurrentSettingsVersion = 1400;
+		private const int CurrentSettingsVersion = 1600;
 		[XmlIgnore]
 		private bool IsFutureVersion { get; set; }
 		public int SettingsVersion { get; set; }
@@ -29,6 +29,7 @@ namespace HDTHighlightMinionType
 		public double DimStrength { get; set; } = 0.8;
 		public bool AlwaysHighlightAll { get; set; }
 		public bool ShowNeutral { get; set; } = true;
+		public bool IgnoreSpells { get; set; } = true;
 		public bool LockOverlayPosition { get; set; }
 		public bool HideOverlayDuringCombat { get; set; } = true;
 
@@ -106,6 +107,7 @@ namespace HDTHighlightMinionType
 			if(SettingsVersion < 1200) AlwaysHighlightAll = false;
 			if(SettingsVersion < 1300) HideOverlayDuringCombat = true;
 			if(SettingsVersion < 1400 && !Finite(BorderOpacity)) BorderOpacity = 0.8;
+			if(SettingsVersion < 1600) IgnoreSpells = true;
 			SettingsVersion = CurrentSettingsVersion;
 			return true;
 		}

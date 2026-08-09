@@ -259,7 +259,7 @@ namespace HDTHighlightMinionType
 			var signature = string.Join(";", shop.Select(x => x.Id + ":" + x.CardId + ":" + x.ZonePosition))
 				+ "|" + string.Join(";", _selection.States.OrderBy(x => x.Key).Select(x => x.Key + "=" + x.Value))
 				+ "|G:" + geometrySignature
-				+ $"|{width:0.0}x{height:0.0}|{_settings.HighlightStyle}|{_settings.GlowColor}|{_settings.BorderOpacity:0.000}|{_settings.HighlightOpacity:0.000}|{_settings.DimStrength:0.000}|{_settings.AlwaysHighlightAll}";
+				+ $"|{width:0.0}x{height:0.0}|{_settings.HighlightStyle}|{_settings.GlowColor}|{_settings.BorderOpacity:0.000}|{_settings.HighlightOpacity:0.000}|{_settings.DimStrength:0.000}|{_settings.AlwaysHighlightAll}|{_settings.IgnoreSpells}";
 			if(signature == _effectSignature) return;
 			if(shop.Count != shopRegions.Count)
 			{
@@ -273,6 +273,7 @@ namespace HDTHighlightMinionType
 			for(var i = 0; i < shop.Count; i++)
 			{
 				if(ValidBoardEntity(shop[i])) AddEntityEffect(shop[i], shopRegions[i]);
+				else if(_settings.IgnoreSpells && IsSpellEntity(shop[i])) continue;
 				else if(_settings.HighlightStyle == HighlightStyle.DimOthers || _settings.HighlightStyle == HighlightStyle.Combo) AddDim(shopRegions[i]);
 			}
 		}
@@ -366,6 +367,8 @@ namespace HDTHighlightMinionType
 
 		private static bool ShopSlotEntity(Entity x) => x.IsInPlay && x.TakesBoardSlot && x.ZonePosition > 0;
 		private static bool ValidBoardEntity(Entity x) => x.IsMinion && ShopSlotEntity(x);
+		private static bool IsSpellEntity(Entity x)
+			=> x.IsSpell || x.Card.TypeEnum == HearthDb.Enums.CardType.BATTLEGROUND_SPELL;
 
 		private void BeginDrag(object sender, MouseButtonEventArgs e)
 		{
