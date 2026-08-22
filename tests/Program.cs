@@ -1,4 +1,8 @@
 using System;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Xml.Serialization;
 using HDTHighlightMinionType;
 
 internal static class Program
@@ -16,9 +20,20 @@ internal static class Program
 		ToggleIsThreeStateAware();
 		VersionComparisonWorks();
 		BetaTagParsingIsAnchored();
+		TavernSpellHighlightingWorks();
+		BattlegroundsSessionsAreDetected();
+		ShoppingPhaseSurvivesReconnectReplay();
+		CombatPhaseSurvivesReconnectReplay();
+		NewGameAfterMenuDoesNotUseReconnectPhase();
+		AtomicWritePreservesExistingFileOnFailure();
+		SettingsMigrationEnablesSpellIgnoring();
+		CurrentSettingsPreserveSpellIgnoringChoice();
+		VisibleShopSourceSurvivesReconnectReset();
+		HighlightLayerStaysHiddenBetweenHoveredCards();
+		HoverHidingDefaultsOff();
 
 		if(_failures > 0)
-			throw new Exception(_failures + " selection tests failed.");
+			throw new Exception(_failures + " tests failed.");
 		Console.WriteLine("All tests passed.");
 	}
 
@@ -92,6 +107,170 @@ internal static class Program
 	{
 		Check(UpdateChecker.Compare("2.0-bugfix", "2.0") == 0, nameof(BetaTagParsingIsAnchored), "the word bugfix must not be treated as a beta marker");
 		Check(UpdateChecker.Compare("2.0-beta.1", "2.0") < 0, nameof(BetaTagParsingIsAnchored), "an explicit beta suffix should compare below stable");
+	}
+
+	private static void TavernSpellHighlightingWorks()
+	{
+		Check(HighlightLogic.Resolve(false, true, false, true, HighlightStyle.Combo) == HighlightEffect.None,
+			nameof(TavernSpellHighlightingWorks), "ignored Tavern spells should receive no effect");
+		Check(HighlightLogic.Resolve(false, true, false, false, HighlightStyle.Combo) == HighlightEffect.Dim,
+			nameof(TavernSpellHighlightingWorks), "non-ignored Tavern spells should be dimmed in Combo mode");
+		Check(HighlightLogic.Resolve(true, false, true, true, HighlightStyle.Combo) == HighlightEffect.Glow,
+			nameof(TavernSpellHighlightingWorks), "matching minions should glow in Combo mode");
+		Check(HighlightLogic.Resolve(true, false, false, true, HighlightStyle.Combo) == HighlightEffect.Dim,
+			nameof(TavernSpellHighlightingWorks), "non-matching minions should be dimmed in Combo mode");
+	}
+
+	private static void BattlegroundsSessionsAreDetected()
+	{
+		var first = Guid.NewGuid();
+		var second = Guid.NewGuid();
+		var sut = new BattlegroundsSessionTracker();
+		Check(sut.Update(true, false, "match-1", first) == BattlegroundsSessionChange.Started, nameof(BattlegroundsSessionsAreDetected), "the first active update should start a session");
+		Check(sut.Update(true, false, "match-1", first) == BattlegroundsSessionChange.None, nameof(BattlegroundsSessionsAreDetected), "the same game should not start twice");
+		Check(sut.Update(false, true, "match-1", null) == BattlegroundsSessionChange.None, nameof(BattlegroundsSessionsAreDetected), "a transient menu state should not immediately discard the stable match id");
+		Check(sut.Update(true, false, "match-1", second) == BattlegroundsSessionChange.Reconnected, nameof(BattlegroundsSessionsAreDetected), "a changed transient game id with the same server match should be treated as reconnect");
+		Check(sut.Update(true, false, "match-1", second) == BattlegroundsSessionChange.None, nameof(BattlegroundsSessionsAreDetected), "the reconnected game should stabilize without another reset");
+		Check(sut.Update(false, true, "match-1", null) == BattlegroundsSessionChange.None, nameof(BattlegroundsSessionsAreDetected), "entering the menu should not reset selections by itself");
+		Check(sut.Update(true, false, "match-2", Guid.NewGuid()) == BattlegroundsSessionChange.Started, nameof(BattlegroundsSessionsAreDetected), "a changed server match should start a new session");
+	}
+
+	private static void ShoppingPhaseSurvivesReconnectReplay()
+	{
+		var first = Guid.NewGuid();
+		var reconnect = Guid.NewGuid();
+		var now = new DateTime(2026, 8, 22, 12, 0, 0, DateTimeKind.Utc);
+		var sut = new BattlegroundsPhaseTracker();
+		Check(!sut.Resolve(true, first, false, true, now), nameof(ShoppingPhaseSurvivesReconnectReplay), "shopping should be detected before reconnect");
+		Check(!sut.Resolve(false, null, false, false, now.AddSeconds(1)), nameof(ShoppingPhaseSurvivesReconnectReplay), "the brief disconnect should not invent combat");
+		Check(!sut.Resolve(true, reconnect, true, false, now.AddSeconds(2)), nameof(ShoppingPhaseSurvivesReconnectReplay), "a replayed combat flag should not disable the restored shop");
+		Check(sut.IsRecovering, nameof(ShoppingPhaseSurvivesReconnectReplay), "phase recovery should remain active while the shopping turn is missing");
+		Check(!sut.Resolve(true, reconnect, false, true, now.AddSeconds(45)), nameof(ShoppingPhaseSurvivesReconnectReplay), "the restored shopping marker should complete recovery");
+		Check(!sut.IsRecovering, nameof(ShoppingPhaseSurvivesReconnectReplay), "phase recovery should complete after the current shopping turn is restored");
+		Check(sut.Resolve(true, reconnect, true, true, now.AddSeconds(50)), nameof(ShoppingPhaseSurvivesReconnectReplay), "a real later combat should still be detected");
+	}
+
+	private static void CombatPhaseSurvivesReconnectReplay()
+	{
+		var first = Guid.NewGuid();
+		var reconnect = Guid.NewGuid();
+		var now = new DateTime(2026, 8, 22, 12, 0, 0, DateTimeKind.Utc);
+		var sut = new BattlegroundsPhaseTracker();
+		Check(sut.Resolve(true, first, true, true, now), nameof(CombatPhaseSurvivesReconnectReplay), "combat should be detected before reconnect");
+		sut.Resolve(false, null, false, false, now.AddSeconds(1));
+		Check(sut.Resolve(true, reconnect, false, false, now.AddSeconds(2)), nameof(CombatPhaseSurvivesReconnectReplay), "the reset combat flag should not enable effects during a combat reconnect");
+		Check(!sut.Resolve(true, reconnect, false, true, now.AddSeconds(15)), nameof(CombatPhaseSurvivesReconnectReplay), "the next restored shopping turn should enable selection again");
+	}
+
+	private static void NewGameAfterMenuDoesNotUseReconnectPhase()
+	{
+		var first = Guid.NewGuid();
+		var second = Guid.NewGuid();
+		var now = new DateTime(2026, 8, 22, 12, 0, 0, DateTimeKind.Utc);
+		var sut = new BattlegroundsPhaseTracker();
+		sut.Resolve(true, first, true, true, now);
+		sut.Resolve(false, null, false, false, now.AddSeconds(1));
+		sut.Resolve(false, null, false, false, now.AddSeconds(31));
+		Check(!sut.Resolve(true, second, false, false, now.AddSeconds(32)), nameof(NewGameAfterMenuDoesNotUseReconnectPhase), "a later new game should use its own reported phase");
+		Check(!sut.IsRecovering, nameof(NewGameAfterMenuDoesNotUseReconnectPhase), "a normal new game should not enter reconnect recovery");
+	}
+
+	private static void AtomicWritePreservesExistingFileOnFailure()
+	{
+		WithTemporaryDirectory(directory =>
+		{
+			var path = Path.Combine(directory, "settings.xml");
+			File.WriteAllText(path, "original", Encoding.UTF8);
+			try
+			{
+				AtomicFile.Write(path, stream =>
+				{
+					var partial = Encoding.UTF8.GetBytes("partial");
+					stream.Write(partial, 0, partial.Length);
+					throw new InvalidOperationException("simulated write failure");
+				});
+				Check(false, nameof(AtomicWritePreservesExistingFileOnFailure), "the simulated failure should escape the atomic writer");
+			}
+			catch(InvalidOperationException)
+			{
+				Check(File.ReadAllText(path, Encoding.UTF8) == "original", nameof(AtomicWritePreservesExistingFileOnFailure), "the previous file should remain intact");
+				Check(!Directory.EnumerateFiles(directory, "*.tmp").Any(), nameof(AtomicWritePreservesExistingFileOnFailure), "temporary files should be cleaned up");
+			}
+		});
+	}
+
+	private static void SettingsMigrationEnablesSpellIgnoring()
+	{
+		WithTemporaryDirectory(directory =>
+		{
+			var path = Path.Combine(directory, "settings.xml");
+			var legacy = new PluginSettings { SettingsVersion = 1500, IgnoreSpells = false };
+			using(var stream = File.Create(path))
+				new XmlSerializer(typeof(PluginSettings)).Serialize(stream, legacy);
+			var migrated = PluginSettings.LoadFrom(path);
+			Check(migrated.SettingsVersion == 1700, nameof(SettingsMigrationEnablesSpellIgnoring), "the settings version should be migrated");
+			Check(migrated.IgnoreSpells, nameof(SettingsMigrationEnablesSpellIgnoring), "legacy settings should receive the enabled default");
+			Check(!migrated.HideHighlightOnHover, nameof(SettingsMigrationEnablesSpellIgnoring), "hover hiding should remain disabled for existing users");
+			using(var stream = File.OpenRead(path))
+			{
+				var persisted = (PluginSettings)new XmlSerializer(typeof(PluginSettings)).Deserialize(stream);
+				Check(persisted.SettingsVersion == 1700 && persisted.IgnoreSpells && !persisted.HideHighlightOnHover, nameof(SettingsMigrationEnablesSpellIgnoring), "the migrated values should be persisted to disk");
+			}
+		});
+	}
+
+	private static void CurrentSettingsPreserveSpellIgnoringChoice()
+	{
+		WithTemporaryDirectory(directory =>
+		{
+			var path = Path.Combine(directory, "settings.xml");
+			new PluginSettings { SettingsVersion = 1700, IgnoreSpells = false, HideHighlightOnHover = true }.SaveTo(path);
+			var loaded = PluginSettings.LoadFrom(path);
+			Check(!loaded.IgnoreSpells, nameof(CurrentSettingsPreserveSpellIgnoringChoice), "a current user's disabled choice should be preserved");
+			Check(loaded.HideHighlightOnHover, nameof(CurrentSettingsPreserveSpellIgnoringChoice), "a current user's hover choice should be preserved");
+		});
+	}
+
+	private static void VisibleShopSourceSurvivesReconnectReset()
+	{
+		Check(!ShopCardSourcePolicy.ShouldReplaceMirrorSnapshot(true, 4, 0),
+			nameof(VisibleShopSourceSurvivesReconnectReset), "a transient empty mirror board must not erase the last visible Tavern during reconnect");
+		Check(ShopCardSourcePolicy.ShouldReplaceMirrorSnapshot(true, 4, 4),
+			nameof(VisibleShopSourceSurvivesReconnectReset), "a restored non-empty visible Tavern should replace the cached snapshot");
+		Check(ShopCardSourcePolicy.Select(true, true, 4, 4, 4) == ShopCardSource.HearthMirror,
+			nameof(VisibleShopSourceSurvivesReconnectReset), "the cached visible Tavern should remain usable while reconnect recovery is active");
+		Check(ShopCardSourcePolicy.Select(true, false, 0, 7, 7) == ShopCardSource.None,
+			nameof(VisibleShopSourceSurvivesReconnectReset), "stale tracked entities must not be used while the visible board is being restored");
+		Check(ShopCardSourcePolicy.Select(true, true, 7, 7, 7) == ShopCardSource.HearthMirror,
+			nameof(VisibleShopSourceSurvivesReconnectReset), "the current visible board should replace replayed entities after reconnect");
+		Check(ShopCardSourcePolicy.Select(false, false, 0, 7, 7) == ShopCardSource.TrackedEntities,
+			nameof(VisibleShopSourceSurvivesReconnectReset), "tracked entities should remain a startup fallback when HearthMirror is unavailable");
+		Check(ShopCardSourcePolicy.Select(false, true, 6, 7, 7) == ShopCardSource.None,
+			nameof(VisibleShopSourceSurvivesReconnectReset), "a mismatched live snapshot must wait instead of falling back to stale replay data");
+	}
+
+	private static void HighlightLayerStaysHiddenBetweenHoveredCards()
+	{
+		var now = new DateTime(2026, 8, 22, 12, 0, 0, DateTimeKind.Utc);
+		var sut = new HoverSuppressionTracker();
+		Check(sut.Update(true, now), nameof(HighlightLayerStaysHiddenBetweenHoveredCards), "hovering a Tavern card should suppress highlighting");
+		Check(sut.Update(false, now.AddMilliseconds(50)), nameof(HighlightLayerStaysHiddenBetweenHoveredCards), "a short gap between cards should not flash highlighting");
+		Check(sut.Update(true, now.AddMilliseconds(80)), nameof(HighlightLayerStaysHiddenBetweenHoveredCards), "hovering the next card should keep highlighting suppressed");
+		Check(sut.Update(false, now.AddMilliseconds(200)), nameof(HighlightLayerStaysHiddenBetweenHoveredCards), "the restore delay should begin after leaving the shop");
+		Check(!sut.Update(false, now.AddMilliseconds(321)), nameof(HighlightLayerStaysHiddenBetweenHoveredCards), "highlighting should return after the hover animation has ended");
+	}
+
+	private static void HoverHidingDefaultsOff()
+	{
+		Check(!new PluginSettings().HideHighlightOnHover, nameof(HoverHidingDefaultsOff));
+	}
+
+	private static void WithTemporaryDirectory(Action<string> test)
+	{
+		var directory = Path.Combine(Path.GetTempPath(), "HDT-Highlight-Minion-Type.Tests", Guid.NewGuid().ToString("N"));
+		Directory.CreateDirectory(directory);
+		try { test(directory); }
+		finally { if(Directory.Exists(directory)) Directory.Delete(directory, true); }
 	}
 
 	private static void Check(bool value, string test, string? caseName = null)

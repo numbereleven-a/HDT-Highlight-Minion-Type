@@ -31,6 +31,8 @@ The plugin helps you quickly find matching minions without highlighting your han
 * Supports overlay opacity, scale, positioning and position locking
 * Can remain visible or hide during combat while card highlighting stays disabled
 * Ignores Tavern spells by default so they remain visually unchanged
+* Can optionally hide highlighting while a Tavern card is hovered
+* Preserves type selections and highlighting across in-game reconnects
 * Saves settings between HDT sessions
 * Includes a manual update check in the settings window
 * Works locally without telemetry, analytics or gameplay data uploads
@@ -67,6 +69,7 @@ Available settings include:
 * All-type minion behavior
 * Neutral button visibility
 * Tavern spell effects
+* Highlight visibility while hovering Tavern cards
 
 Use the `↻` button beside the installed version to check for a newer GitHub release. The check only runs when the button is pressed and does not download or install files automatically.
 
@@ -87,11 +90,12 @@ Then install it using one of the standard HDT plugin methods.
 
 ### Manual install
 
-1. Extract `HDTHighlightMinionType.dll` from the release archive into `%appdata%\HearthstoneDeckTracker\Plugins`
-2. Restart HDT
-3. Enable `Highlight Minion Type` in `Options -> Tracker -> Plugins`
+1. If you are updating from version 1.1 or earlier, remove the old `HDTHighlightMinionType.dll`
+2. Extract `HighlightMinionType.dll` from the release archive into `%appdata%\HearthstoneDeckTracker\Plugins`
+3. Restart HDT
+4. Enable `Highlight Minion Type` in `Options -> Tracker -> Plugins`
 
-If the plugin does not appear, right-click `HDTHighlightMinionType.dll`, open `Properties`, and click `Unblock`.
+If the plugin does not appear, right-click `HighlightMinionType.dll`, open `Properties`, and click `Unblock`.
 
 ## License
 

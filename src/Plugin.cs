@@ -1,9 +1,6 @@
 using System;
-using System.Collections;
-using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
-using Hearthstone_Deck_Tracker.API;
 using Hearthstone_Deck_Tracker.Plugins;
 
 namespace HDTHighlightMinionType
@@ -11,12 +8,13 @@ namespace HDTHighlightMinionType
 	public sealed class Plugin : IPlugin
 	{
 		private readonly SelectionLogic _selection = new SelectionLogic();
+		private readonly BattlegroundsSessionTracker _session = new BattlegroundsSessionTracker();
+		private readonly BattlegroundsPhaseTracker _phase = new BattlegroundsPhaseTracker();
 		private PluginSettings _settings = new PluginSettings();
 		private OverlayController? _overlay;
 		private SettingsWindow? _settingsWindow;
 		private MenuItem? _menuItem;
 		private bool _loaded;
-		private bool _eventsHooked;
 
 		public string Name => "Highlight Minion Type";
 		public string Description => "Highlights Battlegrounds minions shown in Bob's Tavern by type during shopping.";
@@ -28,8 +26,10 @@ namespace HDTHighlightMinionType
 		public void OnLoad()
 		{
 			_settings = PluginSettings.Load();
+			_session.Reset();
+			_phase.Reset();
+			_selection.Reset();
 			InvokeUi(() => { _overlay = new OverlayController(_settings, _selection); _overlay.Attach(); });
-			HookEvents();
 			_loaded = true;
 			Diagnostics.Info("Loaded version " + PluginMetadata.DisplayVersion + ".");
 		}
@@ -37,7 +37,8 @@ namespace HDTHighlightMinionType
 		public void OnUnload()
 		{
 			_loaded = false;
-			UnhookEvents();
+			_session.Reset();
+			_phase.Reset();
 			InvokeUi(() =>
 			{
 				_settingsWindow?.Close(); _settingsWindow = null;
@@ -60,13 +61,36 @@ namespace HDTHighlightMinionType
 		{
 			if(!_loaded || _overlay == null) return;
 			var game = Hearthstone_Deck_Tracker.API.Core.Game;
+			var now = DateTime.UtcNow;
 			if(game == null)
 			{
+				_session.Update(false, false, "", null);
+				_phase.Resolve(false, null, false, false, now);
 				_overlay.Update(false, false);
 				return;
 			}
 			var inBattlegrounds = game.IsBattlegroundsMatch && !game.IsInMenu;
-			var inCombat = inBattlegrounds && game.IsBattlegroundsCombatPhase;
+			var gameHandle = game.MetaData.ServerInfo?.GameHandle ?? 0;
+			var stableMatchId = gameHandle > 0 ? gameHandle.ToString() : "";
+			var sessionChange = _session.Update(inBattlegrounds, game.IsInMenu, stableMatchId, game.CurrentGameStats?.GameId);
+			if(sessionChange == BattlegroundsSessionChange.Started)
+			{
+				_overlay.ResetSelection();
+				Diagnostics.Info("New Battlegrounds match detected; type selections were reset.");
+			}
+			else if(sessionChange == BattlegroundsSessionChange.Reconnected)
+			{
+				_overlay.RefreshInteractivityRegistration();
+				Diagnostics.Info("Battlegrounds reconnect detected; preserving type selections.");
+			}
+			var wasRecovering = _phase.IsRecovering;
+			var resolvedCombat = _phase.Resolve(inBattlegrounds, game.CurrentGameStats?.GameId,
+				game.IsBattlegroundsCombatPhase, game.GameEntityTurnAtShoppingStart >= 0, now);
+			var inCombat = inBattlegrounds && resolvedCombat;
+			if(!wasRecovering && _phase.IsRecovering)
+				Diagnostics.Info("Reconnect detected; preserving the last known " + (inCombat ? "combat" : "shopping") + " phase until HDT restores the current turn.");
+			else if(wasRecovering && !_phase.IsRecovering)
+				Diagnostics.Info("Battlegrounds phase recovery completed.");
 			var visible = inBattlegrounds && (!inCombat || !_settings.HideOverlayDuringCombat);
 			_overlay.Update(visible, inBattlegrounds && !inCombat);
 		}
@@ -91,43 +115,8 @@ namespace HDTHighlightMinionType
 			});
 		}
 
-		private void HookEvents()
-		{
-			if(_eventsHooked) return;
-			GameEvents.OnGameStart.Add(OnNewGame);
-			GameEvents.OnGameEnd.Add(Hide);
-			GameEvents.OnInMenu.Add(Hide);
-			_eventsHooked = true;
-		}
-
-		private void OnNewGame() => InvokeUi(() => { _selection.Reset(); _overlay?.Update(false, false); });
-		private void Hide() => InvokeUi(() => _overlay?.Update(false, false));
-
 		private void ApplyOverlaySettings() => InvokeUi(() => _overlay?.ApplySettings());
 		private void ResetOverlayPosition() => InvokeUi(() => _overlay?.ResetPosition());
-
-		private void UnhookEvents()
-		{
-			if(!_eventsHooked) return;
-			Remove(GameEvents.OnGameStart, (Action)OnNewGame, "OnGameStart");
-			Remove(GameEvents.OnGameEnd, (Action)Hide, "OnGameEnd");
-			Remove(GameEvents.OnInMenu, (Action)Hide, "OnInMenu");
-			_eventsHooked = false;
-		}
-
-		private static void Remove(object actionList, Action action, string eventName)
-		{
-			var field = actionList.GetType().GetField("_actions", BindingFlags.Instance | BindingFlags.NonPublic);
-			if(!(field?.GetValue(actionList) is IList actions))
-			{
-				Diagnostics.WarnOnce("unhook-field-" + eventName, "Could not detach " + eventName + ": this HDT version uses an unknown event implementation.");
-				return;
-			}
-			var removed = 0;
-			for(var i = actions.Count - 1; i >= 0; i--)
-				if(actions[i] is Tuple<object, Action> tuple && tuple.Item2 == action) { actions.RemoveAt(i); removed++; }
-			if(removed == 0) Diagnostics.WarnOnce("unhook-empty-" + eventName, "No registered handler was found while detaching " + eventName + ".");
-		}
 
 		private static void InvokeUi(Action action)
 		{

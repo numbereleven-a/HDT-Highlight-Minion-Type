@@ -5,16 +5,9 @@ using Hearthstone_Deck_Tracker;
 
 namespace HDTHighlightMinionType
 {
-	public enum HighlightStyle
-	{
-		GlowBorder,
-		DimOthers,
-		Combo
-	}
-
 	public sealed class PluginSettings
 	{
-		private const int CurrentSettingsVersion = 1600;
+		private const int CurrentSettingsVersion = 1700;
 		[XmlIgnore]
 		private bool IsFutureVersion { get; set; }
 		public int SettingsVersion { get; set; }
@@ -30,6 +23,7 @@ namespace HDTHighlightMinionType
 		public bool AlwaysHighlightAll { get; set; }
 		public bool ShowNeutral { get; set; } = true;
 		public bool IgnoreSpells { get; set; } = true;
+		public bool HideHighlightOnHover { get; set; }
 		public bool LockOverlayPosition { get; set; }
 		public bool HideOverlayDuringCombat { get; set; } = true;
 
@@ -47,21 +41,21 @@ namespace HDTHighlightMinionType
 			catch { GlowColor = "#FF58D8FF"; }
 		}
 
-		public static PluginSettings Load()
+		public static PluginSettings Load() => LoadFrom(GetPath());
+
+		internal static PluginSettings LoadFrom(string path)
 		{
-			var path = GetPath();
 			if(!File.Exists(path)) return new PluginSettings();
 			try
 			{
+				PluginSettings value;
 				using(var stream = File.OpenRead(path))
-				{
-					var value = (PluginSettings?)new XmlSerializer(typeof(PluginSettings)).Deserialize(stream) ?? new PluginSettings();
-					value.IsFutureVersion = value.SettingsVersion > CurrentSettingsVersion;
-					var migrated = value.Migrate();
-					value.Normalize();
-					if(migrated) value.Save();
-					return value;
-				}
+					value = (PluginSettings?)new XmlSerializer(typeof(PluginSettings)).Deserialize(stream) ?? new PluginSettings();
+				value.IsFutureVersion = value.SettingsVersion > CurrentSettingsVersion;
+				var migrated = value.Migrate();
+				value.Normalize();
+				if(migrated) value.SaveTo(path);
+				return value;
 			}
 			catch(Exception ex)
 			{
@@ -70,7 +64,9 @@ namespace HDTHighlightMinionType
 			}
 		}
 
-		public void Save()
+		public void Save() => SaveTo(GetPath());
+
+		internal void SaveTo(string path)
 		{
 			Normalize();
 			if(IsFutureVersion)
@@ -81,12 +77,11 @@ namespace HDTHighlightMinionType
 			SettingsVersion = CurrentSettingsVersion;
 			try
 			{
-				var path = GetPath();
 				var directory = Path.GetDirectoryName(path);
 				if(string.IsNullOrWhiteSpace(directory)) throw new InvalidOperationException("The settings directory could not be determined.");
 				Directory.CreateDirectory(directory);
-				using(var stream = File.Create(path))
-					new XmlSerializer(typeof(PluginSettings)).Serialize(stream, this);
+				var serializer = new XmlSerializer(typeof(PluginSettings));
+				AtomicFile.Write(path, stream => serializer.Serialize(stream, this));
 			}
 			catch(Exception ex) { Diagnostics.Warn("Could not save settings: " + ex.Message); }
 		}
@@ -108,6 +103,7 @@ namespace HDTHighlightMinionType
 			if(SettingsVersion < 1300) HideOverlayDuringCombat = true;
 			if(SettingsVersion < 1400 && !Finite(BorderOpacity)) BorderOpacity = 0.8;
 			if(SettingsVersion < 1600) IgnoreSpells = true;
+			if(SettingsVersion < 1700) HideHighlightOnHover = false;
 			SettingsVersion = CurrentSettingsVersion;
 			return true;
 		}

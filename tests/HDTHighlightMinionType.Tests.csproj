@@ -8,9 +8,24 @@
     <Nullable>enable</Nullable>
     <Deterministic>true</Deterministic>
     <PathMap>$(MSBuildProjectDirectory)=/_/HDTHighlightMinionType.Tests</PathMap>
+    <HdtReferencePath Condition=" '$(HDT_PATH)' != '' And Exists('$(HDT_PATH)\Hearthstone Deck Tracker.exe') ">$(HDT_PATH)\Hearthstone Deck Tracker.exe</HdtReferencePath>
+    <HdtReferencePath Condition=" '$(HDT_PATH)' != '' And Exists('$(HDT_PATH)\HearthstoneDeckTracker.exe') ">$(HDT_PATH)\HearthstoneDeckTracker.exe</HdtReferencePath>
+    <HearthDbReferencePath Condition=" '$(HDT_PATH)' != '' ">$(HDT_PATH)\HearthDb.dll</HearthDbReferencePath>
+    <HearthMirrorReferencePath Condition=" '$(HDT_PATH)' != '' ">$(HDT_PATH)\HearthMirror.dll</HearthMirrorReferencePath>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="..\src\SelectionLogic.cs" Link="SelectionLogic.cs" />
-	<Compile Include="..\src\UpdateChecker.cs" Link="UpdateChecker.cs" />
+	<ProjectReference Include="..\src\HDTHighlightMinionType.csproj" />
+	<Reference Include="HearthstoneDeckTracker" Condition=" '$(HdtReferencePath)' != '' ">
+	  <HintPath>$(HdtReferencePath)</HintPath>
+	  <Private>true</Private>
+	</Reference>
+	<Reference Include="HearthDb" Condition=" '$(HearthDbReferencePath)' != '' ">
+	  <HintPath>$(HearthDbReferencePath)</HintPath>
+	  <Private>true</Private>
+	</Reference>
+	<Reference Include="HearthMirror" Condition=" '$(HearthMirrorReferencePath)' != '' ">
+	  <HintPath>$(HearthMirrorReferencePath)</HintPath>
+	  <Private>true</Private>
+	</Reference>
   </ItemGroup>
 </Project>

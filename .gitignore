@@ -6,3 +6,6 @@ Reference/
 artifacts/
 *.user
 *.suo
+/AGENTS.md
+/NOTES.md
+/*-code-review.zip
