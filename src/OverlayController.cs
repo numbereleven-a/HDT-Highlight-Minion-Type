@@ -28,7 +28,7 @@ namespace HDTHighlightMinionType
 		private readonly Border _panel;
 		private readonly Border _dragHandle;
 		private readonly StackPanel _buttons = new StackPanel { Orientation = Orientation.Horizontal };
-		private readonly Dictionary<string, Button> _typeButtons = new Dictionary<string, Button>(StringComparer.OrdinalIgnoreCase);
+		private readonly Dictionary<string, OverlayActionButton> _typeButtons = new Dictionary<string, OverlayActionButton>(StringComparer.OrdinalIgnoreCase);
 		private readonly HearthMirrorBoardStateProvider _boardStateProvider = new HearthMirrorBoardStateProvider();
 		private List<ShopCardInfo> _mirrorShop = new List<ShopCardInfo>();
 		private Canvas? _attachedCanvas;
@@ -54,7 +54,6 @@ namespace HDTHighlightMinionType
 		private static readonly Brush IncludeBorder = CreateBrush(Color.FromRgb(82, 220, 255));
 		private static readonly Brush ExcludeBackground = CreateBrush(Color.FromRgb(115, 34, 43));
 		private static readonly Brush ExcludeBorder = CreateBrush(Color.FromRgb(255, 91, 105));
-		private static readonly ControlTemplate SharedButtonTemplate = CreateButtonTemplate();
 
 		public OverlayController(PluginSettings settings, SelectionLogic selection)
 		{
@@ -192,9 +191,13 @@ namespace HDTHighlightMinionType
 			foreach(var race in races) AddTypeButton(race.Key, race.ShortName, race.FullName);
 			if(_settings.ShowNeutral) AddTypeButton(SelectionLogic.NeutralKey, "N", "Neutral (no minion type)");
 			var reset = MakeButton("↺", "Reset all selections");
-			reset.FontSize = 17;
-			reset.FontWeight = FontWeights.Bold;
-			reset.Click += (_, __) => RunUiAction("reset-selection", () => { ResetSelection(); RefreshEffects(); });
+			reset.LabelFontSize = 17;
+			reset.LabelFontWeight = FontWeights.Bold;
+			reset.Click += (_, e) =>
+			{
+				if(e.ChangedButton == MouseButton.Left)
+					RunUiAction("reset-selection", () => { ResetSelection(); RefreshEffects(); });
+			};
 			_buttons.Children.Add(reset);
 			UpdateButtonStyles();
 		}
@@ -202,11 +205,11 @@ namespace HDTHighlightMinionType
 		private void AddTypeButton(string key, string text, string tooltip)
 		{
 			var button = MakeButton(text, tooltip + "\nLeft-click: include. Right-click: exclude.");
-			button.Click += (_, __) => RunUiAction("include-selection", () => Toggle(key, SelectionState.Include));
-			button.PreviewMouseRightButtonDown += (_, e) =>
+			button.Click += (_, e) =>
 			{
-				e.Handled = true;
-				RunUiAction("exclude-selection", () => Toggle(key, SelectionState.Exclude));
+				var state = OverlayClickPolicy.SelectionFor(e.ChangedButton);
+				if(state.HasValue)
+					RunUiAction("type-selection", () => Toggle(key, state.Value));
 			};
 			_typeButtons[key] = button;
 			_buttons.Children.Add(button);
@@ -220,49 +223,13 @@ namespace HDTHighlightMinionType
 			RefreshEffects(forceMirrorRefresh: true);
 		}
 
-		private static Button MakeButton(string text, string tooltip)
+		private static OverlayActionButton MakeButton(string text, string tooltip)
 		{
-			var button = new Button
+			return new OverlayActionButton(text, tooltip)
 			{
-				Content = text,
-				ToolTip = tooltip,
-				MinWidth = 31,
-				Height = 30,
-				Margin = new Thickness(2),
-				Padding = new Thickness(5, 1, 5, 1),
-				FontSize = 12,
-				FontWeight = FontWeights.SemiBold,
-				Foreground = Brushes.White,
 				Background = NormalBackground,
-				BorderBrush = NormalBorder,
-				BorderThickness = new Thickness(1),
-				Cursor = Cursors.Hand
+				BorderBrush = NormalBorder
 			};
-			button.Template = SharedButtonTemplate;
-			return button;
-		}
-
-		private static ControlTemplate CreateButtonTemplate()
-		{
-			var border = new FrameworkElementFactory(typeof(Border));
-			border.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
-			border.SetBinding(Border.BorderBrushProperty, new System.Windows.Data.Binding("BorderBrush") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
-			border.SetBinding(Border.BorderThicknessProperty, new System.Windows.Data.Binding("BorderThickness") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
-			border.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
-			var content = new FrameworkElementFactory(typeof(ContentPresenter));
-			content.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
-			content.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
-			content.SetBinding(ContentPresenter.ContentProperty, new System.Windows.Data.Binding("Content") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
-			content.SetBinding(ContentPresenter.ContentTemplateProperty, new System.Windows.Data.Binding("ContentTemplate") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
-			border.AppendChild(content);
-			var template = new ControlTemplate(typeof(Button)) { VisualTree = border };
-			var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-			hover.Setters.Add(new Setter(UIElement.OpacityProperty, 0.88));
-			var pressed = new Trigger { Property = Button.IsPressedProperty, Value = true };
-			pressed.Setters.Add(new Setter(UIElement.OpacityProperty, 0.68));
-			template.Triggers.Add(hover);
-			template.Triggers.Add(pressed);
-			return template;
 		}
 
 		private void UpdateButtonStyles()
@@ -272,7 +239,7 @@ namespace HDTHighlightMinionType
 				var state = _selection.Get(pair.Key);
 				pair.Value.Background = state == SelectionState.Include ? IncludeBackground : state == SelectionState.Exclude ? ExcludeBackground : NormalBackground;
 				pair.Value.BorderBrush = state == SelectionState.Include ? IncludeBorder : state == SelectionState.Exclude ? ExcludeBorder : NormalBorder;
-				pair.Value.FontStyle = state == SelectionState.Exclude ? FontStyles.Italic : FontStyles.Normal;
+				pair.Value.LabelFontStyle = state == SelectionState.Exclude ? FontStyles.Italic : FontStyles.Normal;
 			}
 		}
 

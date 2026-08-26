@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Windows.Input;
 using System.Xml.Serialization;
 using HDTHighlightMinionType;
 
@@ -31,6 +32,7 @@ internal static class Program
 		VisibleShopSourceSurvivesReconnectReset();
 		HighlightLayerStaysHiddenBetweenHoveredCards();
 		HoverHidingDefaultsOff();
+		OverlayClicksMapToSelectionModes();
 
 		if(_failures > 0)
 			throw new Exception(_failures + " tests failed.");
@@ -263,6 +265,16 @@ internal static class Program
 	private static void HoverHidingDefaultsOff()
 	{
 		Check(!new PluginSettings().HideHighlightOnHover, nameof(HoverHidingDefaultsOff));
+	}
+
+	private static void OverlayClicksMapToSelectionModes()
+	{
+		Check(OverlayClickPolicy.SelectionFor(MouseButton.Left) == SelectionState.Include,
+			test: nameof(OverlayClicksMapToSelectionModes), caseName: "left-click should include a type");
+		Check(OverlayClickPolicy.SelectionFor(MouseButton.Right) == SelectionState.Exclude,
+			test: nameof(OverlayClicksMapToSelectionModes), caseName: "right-click should exclude a type");
+		Check(OverlayClickPolicy.SelectionFor(MouseButton.Middle) == null,
+			test: nameof(OverlayClicksMapToSelectionModes), caseName: "other mouse buttons should not change a type");
 	}
 
 	private static void WithTemporaryDirectory(Action<string> test)
