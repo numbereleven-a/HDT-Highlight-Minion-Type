@@ -75,6 +75,7 @@ namespace HDTHighlightMinionType
 			var sessionChange = _session.Update(inBattlegrounds, game.IsInMenu, stableMatchId, game.CurrentGameStats?.GameId);
 			if(sessionChange == BattlegroundsSessionChange.Started)
 			{
+				_phase.Reset();
 				_overlay.ResetSelection();
 				Diagnostics.Info("New Battlegrounds match detected; type selections were reset.");
 			}
@@ -92,7 +93,7 @@ namespace HDTHighlightMinionType
 			else if(wasRecovering && !_phase.IsRecovering)
 				Diagnostics.Info("Battlegrounds phase recovery completed.");
 			var visible = inBattlegrounds && (!inCombat || !_settings.HideOverlayDuringCombat);
-			_overlay.Update(visible, inBattlegrounds && !inCombat);
+			_overlay.Update(visible, inBattlegrounds && _phase.CanHighlight);
 		}
 
 		private MenuItem BuildMenu()

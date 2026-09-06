@@ -48,7 +48,9 @@ namespace HDTHighlightMinionType
 			if(isAllRace && HasExcludedRaceKey())
 				return false;
 			if(HasIncludes)
-				return isAllRace || keys.Any(x => Get(x) == SelectionState.Include);
+				return isAllRace
+					? _states.Any(x => x.Value == SelectionState.Include && !x.Key.Equals(NeutralKey, StringComparison.OrdinalIgnoreCase))
+					: keys.Any(x => Get(x) == SelectionState.Include);
 			return true;
 		}
 

@@ -11,9 +11,11 @@ namespace HDTHighlightMinionType
 		private bool _lastCombat;
 
 		public bool IsRecovering { get; private set; }
+		public bool CanHighlight { get; private set; }
 
 		public bool Resolve(bool active, Guid? gameId, bool reportedCombat, bool shoppingTurnRestored, DateTime nowUtc)
 		{
+			CanHighlight = false;
 			if(!active)
 			{
 				_wasActive = false;
@@ -37,11 +39,13 @@ namespace HDTHighlightMinionType
 			if(IsRecovering && !shoppingTurnRestored) return _lastCombat;
 			IsRecovering = false;
 			_lastCombat = reportedCombat;
+			CanHighlight = !reportedCombat && shoppingTurnRestored;
 			return reportedCombat;
 		}
 
 		public void Reset()
 		{
+			CanHighlight = false;
 			_gameId = null;
 			_lastActiveUtc = default;
 			_wasActive = false;

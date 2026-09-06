@@ -30,7 +30,7 @@ namespace HDTHighlightMinionType
 		private readonly StackPanel _buttons = new StackPanel { Orientation = Orientation.Horizontal };
 		private readonly Dictionary<string, OverlayActionButton> _typeButtons = new Dictionary<string, OverlayActionButton>(StringComparer.OrdinalIgnoreCase);
 		private readonly HearthMirrorBoardStateProvider _boardStateProvider = new HearthMirrorBoardStateProvider();
-		private List<ShopCardInfo> _mirrorShop = new List<ShopCardInfo>();
+		private readonly ShopSnapshot<ShopCardInfo> _mirrorSnapshot = new ShopSnapshot<ShopCardInfo>();
 		private Canvas? _attachedCanvas;
 		private Point _dragStart;
 		private bool _dragging;
@@ -39,8 +39,7 @@ namespace HDTHighlightMinionType
 		private bool? _lastShowNeutral;
 		private DateTime _nextRaceRefreshUtc;
 		private DateTime _nextMirrorRefreshUtc;
-		private bool _mirrorSnapshotAvailable;
-		private bool _mirrorSnapshotRequired;
+		private bool _effectsEnabled;
 		private bool _shopHovered;
 		private bool _highlightLayerSuppressed;
 		private static readonly BindingFlags InstanceFields = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
@@ -137,6 +136,7 @@ namespace HDTHighlightMinionType
 
 		public void ResetSelection()
 		{
+			InvalidateShop();
 			_selection.Reset();
 			_effectSignature = "";
 			ClearEffects();
@@ -147,22 +147,28 @@ namespace HDTHighlightMinionType
 		{
 			OverlayExtensions.SetIsOverlayHitTestVisible(_panel, false);
 			OverlayExtensions.SetIsOverlayHitTestVisible(_panel, true);
-			_mirrorSnapshotRequired = true;
-			_mirrorSnapshotAvailable = _mirrorShop.Count > 0;
+			InvalidateShop();
+		}
+
+		private void InvalidateShop()
+		{
+			_mirrorSnapshot.Invalidate();
+			_shopHovered = false;
 			_nextMirrorRefreshUtc = DateTime.MinValue;
 			_effectSignature = "";
-			RefreshMirrorShop(force: true);
+			ClearEffects();
 		}
 
 		public void Update(bool visible, bool effectsEnabled)
 		{
 			var now = DateTime.UtcNow;
+			_effectsEnabled = visible && effectsEnabled;
 			_panel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
 			_buttons.IsEnabled = visible;
 			_buttons.Opacity = 1.0;
 			_buttons.ToolTip = null;
 			if(visible && effectsEnabled) RefreshMirrorShop(force: false);
-			else _shopHovered = false;
+			else InvalidateShop();
 			UpdateHighlightLayer(now);
 			_effects.Visibility = visible && effectsEnabled && _selection.HasSelection ? Visibility.Visible : Visibility.Collapsed;
 			if(!visible || !effectsEnabled)
@@ -245,7 +251,7 @@ namespace HDTHighlightMinionType
 
 		private void RefreshEffects(bool forceMirrorRefresh = false)
 		{
-			if(!_selection.HasSelection)
+			if(!_effectsEnabled || !_selection.HasSelection)
 			{
 				_effectSignature = "";
 				ClearEffects();
@@ -261,9 +267,10 @@ namespace HDTHighlightMinionType
 			var trackedShop = Core.Game.Opponent?.Board.Where(ShopSlotEntity).OrderBy(x => x.ZonePosition)
 				.Select(ShopCardInfo.FromEntity).ToList() ?? new List<ShopCardInfo>();
 			var shopRegions = GetBoardRegions("OppBoardItemsControl", canvas);
-			var source = ShopCardSourcePolicy.Select(_mirrorSnapshotRequired, _mirrorSnapshotAvailable,
-				_mirrorShop.Count, trackedShop.Count, shopRegions.Count);
-			var shop = source == ShopCardSource.HearthMirror ? _mirrorShop
+			var current = _mirrorSnapshot.IsCurrent(DateTime.UtcNow);
+			var source = ShopCardSourcePolicy.Select(!current, current,
+				_mirrorSnapshot.Cards.Count, trackedShop.Count, shopRegions.Count);
+			var shop = source == ShopCardSource.HearthMirror ? _mirrorSnapshot.Cards
 				: source == ShopCardSource.TrackedEntities ? trackedShop
 				: new List<ShopCardInfo>();
 			var geometrySignature = string.Join(";", shopRegions.Select(x => $"{x.X:0.0},{x.Y:0.0},{x.Width:0.0},{x.Height:0.0}"));
@@ -274,9 +281,10 @@ namespace HDTHighlightMinionType
 			if(signature == _effectSignature) return;
 			if(source == ShopCardSource.None)
 			{
+				_effectSignature = "";
 				ClearEffects();
 				Diagnostics.WarnThrottled("shop-card-source",
-					$"Waiting for the current visible Tavern snapshot (mirror={_mirrorShop.Count}, tracked={trackedShop.Count}, regions={shopRegions.Count}).",
+					$"Waiting for the current visible Tavern snapshot (mirror={_mirrorSnapshot.Cards.Count}, tracked={trackedShop.Count}, regions={shopRegions.Count}).",
 					TimeSpan.FromSeconds(10));
 				return;
 			}
@@ -308,22 +316,18 @@ namespace HDTHighlightMinionType
 			_nextMirrorRefreshUtc = now.AddMilliseconds(50);
 			try
 			{
-				var opposing = _boardStateProvider.BoardState?.Opposing;
-				if(opposing == null) return;
-				var visibleCards = opposing.BoardCards
-					.Where(x => x.ZonePosition > 0 && !string.IsNullOrWhiteSpace(x.CardId))
-					.OrderBy(x => x.ZonePosition)
-					.ToList();
-				_shopHovered = visibleCards.Any(x => x.Hovered);
-				var incoming = visibleCards
-					.Select(ShopCardInfo.FromMirror)
-					.ToList();
-				if(!ShopCardSourcePolicy.ShouldReplaceMirrorSnapshot(_mirrorSnapshotRequired, _mirrorShop.Count, incoming.Count))
-					return;
-				_mirrorShop = incoming;
-				_mirrorSnapshotAvailable = true;
-				if(incoming.Count > 0 || !_mirrorSnapshotRequired)
-					_mirrorSnapshotRequired = false;
+				_shopHovered = false;
+				_mirrorSnapshot.Read(() =>
+				{
+					var opposing = _boardStateProvider.BoardState?.Opposing;
+					if(opposing == null) return null;
+					var visibleCards = opposing.BoardCards
+						.Where(x => x.ZonePosition > 0 && !string.IsNullOrWhiteSpace(x.CardId))
+						.OrderBy(x => x.ZonePosition)
+						.ToList();
+					_shopHovered = visibleCards.Any(x => x.Hovered);
+					return visibleCards.Select(ShopCardInfo.FromMirror).ToList();
+				}, now);
 			}
 			catch(Exception ex)
 			{

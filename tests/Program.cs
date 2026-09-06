@@ -33,6 +33,10 @@ internal static class Program
 		HighlightLayerStaysHiddenBetweenHoveredCards();
 		HoverHidingDefaultsOff();
 		OverlayClicksMapToSelectionModes();
+		AllDoesNotMatchNeutralOnly();
+		RequiredSnapshotRejectsCachedCards();
+		SnapshotReadsInvalidateOldCards();
+		RecoveryRequiresConfirmedShopping();
 
 		if(_failures > 0)
 			throw new Exception(_failures + " tests failed.");
@@ -235,15 +239,11 @@ internal static class Program
 
 	private static void VisibleShopSourceSurvivesReconnectReset()
 	{
-		Check(!ShopCardSourcePolicy.ShouldReplaceMirrorSnapshot(true, 4, 0),
-			nameof(VisibleShopSourceSurvivesReconnectReset), "a transient empty mirror board must not erase the last visible Tavern during reconnect");
-		Check(ShopCardSourcePolicy.ShouldReplaceMirrorSnapshot(true, 4, 4),
-			nameof(VisibleShopSourceSurvivesReconnectReset), "a restored non-empty visible Tavern should replace the cached snapshot");
-		Check(ShopCardSourcePolicy.Select(true, true, 4, 4, 4) == ShopCardSource.HearthMirror,
-			nameof(VisibleShopSourceSurvivesReconnectReset), "the cached visible Tavern should remain usable while reconnect recovery is active");
+		Check(ShopCardSourcePolicy.Select(true, true, 4, 4, 4) == ShopCardSource.None,
+			nameof(VisibleShopSourceSurvivesReconnectReset), "recovery must invalidate cached cards independently of selection");
 		Check(ShopCardSourcePolicy.Select(true, false, 0, 7, 7) == ShopCardSource.None,
 			nameof(VisibleShopSourceSurvivesReconnectReset), "stale tracked entities must not be used while the visible board is being restored");
-		Check(ShopCardSourcePolicy.Select(true, true, 7, 7, 7) == ShopCardSource.HearthMirror,
+		Check(ShopCardSourcePolicy.Select(false, true, 7, 7, 7) == ShopCardSource.HearthMirror,
 			nameof(VisibleShopSourceSurvivesReconnectReset), "the current visible board should replace replayed entities after reconnect");
 		Check(ShopCardSourcePolicy.Select(false, false, 0, 7, 7) == ShopCardSource.TrackedEntities,
 			nameof(VisibleShopSourceSurvivesReconnectReset), "tracked entities should remain a startup fallback when HearthMirror is unavailable");
@@ -275,6 +275,78 @@ internal static class Program
 			test: nameof(OverlayClicksMapToSelectionModes), caseName: "right-click should exclude a type");
 		Check(OverlayClickPolicy.SelectionFor(MouseButton.Middle) == null,
 			test: nameof(OverlayClicksMapToSelectionModes), caseName: "other mouse buttons should not change a type");
+	}
+
+	private static void AllDoesNotMatchNeutralOnly()
+	{
+		var selection = new SelectionLogic();
+		selection.Toggle(SelectionLogic.NeutralKey, SelectionState.Include);
+		Check(!selection.Matches(Array.Empty<string>(), true, false), nameof(AllDoesNotMatchNeutralOnly));
+		Check(selection.Matches(Array.Empty<string>(), true, true), nameof(AllDoesNotMatchNeutralOnly), "explicit All override");
+		selection.Toggle("BEAST", SelectionState.Include);
+		Check(selection.Matches(Array.Empty<string>(), true, false), nameof(AllDoesNotMatchNeutralOnly), "real type included");
+		selection.Toggle("DEMON", SelectionState.Exclude);
+		Check(!selection.Matches(Array.Empty<string>(), true, false), nameof(AllDoesNotMatchNeutralOnly), "real exclusion wins");
+		selection.Reset();
+		selection.Toggle(SelectionLogic.NeutralKey, SelectionState.Exclude);
+		Check(selection.Matches(Array.Empty<string>(), true, false), nameof(AllDoesNotMatchNeutralOnly), "Neutral exclusion does not exclude All");
+	}
+
+	private static void RequiredSnapshotRejectsCachedCards()
+	{
+		Check(ShopCardSourcePolicy.Select(true, true, 2, 2, 2) == ShopCardSource.None,
+			nameof(RequiredSnapshotRejectsCachedCards), "old same-size snapshot must not survive invalidation");
+	}
+
+	private static void SnapshotReadsInvalidateOldCards()
+	{
+		var now = new DateTime(2026, 9, 6, 12, 0, 0, DateTimeKind.Utc);
+		var snapshot = new ShopSnapshot<string>();
+		foreach(var failure in new[] { "null", "throw", "empty" })
+		{
+			snapshot.Read(() => new[] { "BEAST", "DEMON" }, now);
+			Check(snapshot.IsCurrent(now), nameof(SnapshotReadsInvalidateOldCards));
+			snapshot.Invalidate();
+			try
+			{
+				snapshot.Read(() => failure == "throw" ? throw new InvalidOperationException("synthetic")
+					: failure == "null" ? null : Array.Empty<string>(), now);
+			}
+			catch(InvalidOperationException) { }
+			Check(snapshot.Cards.Count == 0, nameof(SnapshotReadsInvalidateOldCards), failure);
+			Check(snapshot.IsCurrent(now) == (failure == "empty"), nameof(SnapshotReadsInvalidateOldCards), "valid empty differs from failed read");
+			Check(ShopCardSourcePolicy.Select(!snapshot.IsCurrent(now), snapshot.IsCurrent(now), snapshot.Cards.Count, 2, 2) == ShopCardSource.None,
+				nameof(SnapshotReadsInvalidateOldCards), "same-size old geometry cannot revive old cards");
+			snapshot.Read(() => new[] { "DRAGON", "BEAST" }, now);
+			Check(snapshot.Cards[1] == "BEAST", nameof(SnapshotReadsInvalidateOldCards), "new same-size list replaces old order");
+			Check(!snapshot.IsCurrent(now.AddSeconds(1)), nameof(SnapshotReadsInvalidateOldCards), "expired read");
+			// Also exercise failures without an explicit reconnect invalidation.
+			snapshot.Read(() => null, now);
+			Check(!snapshot.IsCurrent(now) && snapshot.Cards.Count == 0, nameof(SnapshotReadsInvalidateOldCards), "ordinary failed refresh");
+		}
+	}
+
+	private static void RecoveryRequiresConfirmedShopping()
+	{
+		var now = new DateTime(2026, 9, 6, 12, 0, 0, DateTimeKind.Utc);
+		var phase = new BattlegroundsPhaseTracker();
+		var first = Guid.NewGuid();
+		var reconnect = Guid.NewGuid();
+		phase.Resolve(true, first, false, true, now);
+		Check(phase.CanHighlight, nameof(RecoveryRequiresConfirmedShopping));
+		phase.Resolve(false, null, false, false, now.AddSeconds(1));
+		Check(!phase.CanHighlight, nameof(RecoveryRequiresConfirmedShopping));
+		phase.Resolve(true, reconnect, true, false, now.AddSeconds(2));
+		Check(!phase.CanHighlight, nameof(RecoveryRequiresConfirmedShopping), "replay or real combat must not enable effects");
+		phase.Resolve(true, reconnect, true, false, now.AddMinutes(2));
+		Check(!phase.CanHighlight, nameof(RecoveryRequiresConfirmedShopping), "prolonged recovery");
+		phase.Resolve(true, reconnect, false, true, now.AddMinutes(3));
+		Check(phase.CanHighlight, nameof(RecoveryRequiresConfirmedShopping), "confirmed shopping restores effects");
+		phase.Resolve(true, reconnect, true, true, now.AddMinutes(4));
+		Check(!phase.CanHighlight, nameof(RecoveryRequiresConfirmedShopping), "normal combat");
+		phase.Reset();
+		phase.Resolve(true, Guid.NewGuid(), false, false, now.AddMinutes(5));
+		Check(!phase.IsRecovering && !phase.CanHighlight, nameof(RecoveryRequiresConfirmedShopping), "new game does not inherit phase");
 	}
 
 	private static void WithTemporaryDirectory(Action<string> test)
