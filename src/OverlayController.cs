@@ -9,9 +9,9 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
+using System.Windows.Threading;
 using Hearthstone_Deck_Tracker.API;
 using Hearthstone_Deck_Tracker.Hearthstone;
-using Hearthstone_Deck_Tracker.Hearthstone.Entities;
 using Hearthstone_Deck_Tracker.Utility.Extensions;
 using HearthMirror.Objects;
 using CardType = HearthDb.Enums.CardType;
@@ -100,12 +100,15 @@ namespace HDTHighlightMinionType
 		public void Detach()
 		{
 			var canvas = _attachedCanvas ?? Core.OverlayCanvas;
-			canvas.SizeChanged -= CanvasSizeChanged;
 			_dragHandle.ReleaseMouseCapture();
 			_dragging = false;
 			OverlayExtensions.SetIsOverlayHitTestVisible(_panel, false);
-			canvas.Children.Remove(_panel);
-			canvas.Children.Remove(_effects);
+			if(canvas != null)
+			{
+				canvas.SizeChanged -= CanvasSizeChanged;
+				canvas.Children.Remove(_panel);
+				canvas.Children.Remove(_effects);
+			}
 			ClearEffects();
 			_attachedCanvas = null;
 		}
@@ -121,7 +124,7 @@ namespace HDTHighlightMinionType
 			_effectSignature = "";
 			UpdateHighlightLayer(DateTime.UtcNow);
 			RefreshButtons(force: string.IsNullOrEmpty(_raceSignature) || _lastShowNeutral != _settings.ShowNeutral);
-			_panel.Dispatcher.BeginInvoke(new Action(ClampPosition));
+			_panel.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(ClampPosition));
 		}
 
 		public void ResetPosition()
@@ -206,6 +209,7 @@ namespace HDTHighlightMinionType
 			};
 			_buttons.Children.Add(reset);
 			UpdateButtonStyles();
+			_panel.Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(ClampPosition));
 		}
 
 		private void AddTypeButton(string key, string text, string tooltip)
@@ -264,15 +268,10 @@ namespace HDTHighlightMinionType
 			_effects.Width = width;
 			_effects.Height = height;
 			RefreshMirrorShop(forceMirrorRefresh);
-			var trackedShop = Core.Game.Opponent?.Board.Where(ShopSlotEntity).OrderBy(x => x.ZonePosition)
-				.Select(ShopCardInfo.FromEntity).ToList() ?? new List<ShopCardInfo>();
 			var shopRegions = GetBoardRegions("OppBoardItemsControl", canvas);
 			var current = _mirrorSnapshot.IsCurrent(DateTime.UtcNow);
-			var source = ShopCardSourcePolicy.Select(!current, current,
-				_mirrorSnapshot.Cards.Count, trackedShop.Count, shopRegions.Count);
-			var shop = source == ShopCardSource.HearthMirror ? _mirrorSnapshot.Cards
-				: source == ShopCardSource.TrackedEntities ? trackedShop
-				: new List<ShopCardInfo>();
+			var source = ShopCardSourcePolicy.Select(current, _mirrorSnapshot.Cards.Count, shopRegions.Count);
+			var shop = source == ShopCardSource.HearthMirror ? _mirrorSnapshot.Cards : Array.Empty<ShopCardInfo>();
 			var geometrySignature = string.Join(";", shopRegions.Select(x => $"{x.X:0.0},{x.Y:0.0},{x.Width:0.0},{x.Height:0.0}"));
 			var signature = source + ":" + string.Join(";", shop.Select(x => x.EntityId + ":" + x.CardId + ":" + x.ZonePosition))
 				+ "|" + string.Join(";", _selection.States.OrderBy(x => x.Key).Select(x => x.Key + "=" + x.Value))
@@ -284,18 +283,19 @@ namespace HDTHighlightMinionType
 				_effectSignature = "";
 				ClearEffects();
 				Diagnostics.WarnThrottled("shop-card-source",
-					$"Waiting for the current visible Tavern snapshot (mirror={_mirrorSnapshot.Cards.Count}, tracked={trackedShop.Count}, regions={shopRegions.Count}).",
+					$"Waiting for the current visible Tavern snapshot (current={current}, mirror={_mirrorSnapshot.Cards.Count}, regions={shopRegions.Count}).",
 					TimeSpan.FromSeconds(10));
 				return;
 			}
 			_effectSignature = signature;
 			ClearEffects();
+			var glowColor = (Color)ColorConverter.ConvertFromString(_settings.GlowColor);
 
 			for(var i = 0; i < shop.Count; i++)
-				AddCardEffect(shop[i], shopRegions[i]);
+				AddCardEffect(shop[i], shopRegions[i], glowColor);
 		}
 
-		private void AddCardEffect(ShopCardInfo shopCard, Rect region)
+		private void AddCardEffect(ShopCardInfo shopCard, Rect region, Color glowColor)
 		{
 			var isMinion = shopCard.IsMinion;
 			var match = false;
@@ -305,7 +305,7 @@ namespace HDTHighlightMinionType
 				match = _selection.Matches(races, all, _settings.AlwaysHighlightAll);
 			}
 			var effect = HighlightLogic.Resolve(isMinion, shopCard.IsSpell, match, _settings.IgnoreSpells, _settings.HighlightStyle);
-			if(effect == HighlightEffect.Glow) AddGlow(region);
+			if(effect == HighlightEffect.Glow) AddGlow(region, glowColor);
 			else if(effect == HighlightEffect.Dim) AddDim(region);
 		}
 
@@ -320,7 +320,7 @@ namespace HDTHighlightMinionType
 				_mirrorSnapshot.Read(() =>
 				{
 					var opposing = _boardStateProvider.BoardState?.Opposing;
-					if(opposing == null) return null;
+					if(opposing?.BoardCards == null) return null;
 					var visibleCards = opposing.BoardCards
 						.Where(x => x.ZonePosition > 0 && !string.IsNullOrWhiteSpace(x.CardId))
 						.OrderBy(x => x.ZonePosition)
@@ -335,9 +335,8 @@ namespace HDTHighlightMinionType
 			}
 		}
 
-		private void AddGlow(Rect rect)
+		private void AddGlow(Rect rect, Color color)
 		{
-			var color = (Color)ColorConverter.ConvertFromString(_settings.GlowColor);
 			var border = new Border
 			{
 				Width = rect.Width + 6,
@@ -373,13 +372,14 @@ namespace HDTHighlightMinionType
 		private void UpdateHighlightLayer(DateTime nowUtc)
 		{
 			var hoverSuppressed = _hoverSuppression.Update(_shopHovered, nowUtc);
-			var suppressed = _settings.HideHighlightOnHover && hoverSuppressed;
+			var suppressed = _effectsEnabled && _settings.HideHighlightOnHover && hoverSuppressed;
 			if(suppressed == _highlightLayerSuppressed) return;
 			_highlightLayerSuppressed = suppressed;
 			var target = suppressed ? 0.0 : 1.0;
 			var current = _effects.Opacity;
 			_effects.BeginAnimation(UIElement.OpacityProperty, null);
 			_effects.Opacity = target;
+			if(!_effectsEnabled) return;
 			_effects.BeginAnimation(UIElement.OpacityProperty,
 				new DoubleAnimation(current, target, TimeSpan.FromMilliseconds(suppressed ? 60 : 100)) { FillBehavior = FillBehavior.Stop },
 				HandoffBehavior.SnapshotAndReplace);
@@ -429,8 +429,6 @@ namespace HDTHighlightMinionType
 			catch(InvalidOperationException) { return false; }
 		}
 
-		private static bool ShopSlotEntity(Entity x) => x.IsInPlay && x.TakesBoardSlot && x.ZonePosition > 0;
-
 		private sealed class ShopCardInfo
 		{
 			private ShopCardInfo(int? entityId, string cardId, int zonePosition, HdtCard? card, bool isMinion, bool isSpell)
@@ -449,14 +447,6 @@ namespace HDTHighlightMinionType
 			public HdtCard? Card { get; }
 			public bool IsMinion { get; }
 			public bool IsSpell { get; }
-
-			public static ShopCardInfo FromEntity(Entity entity)
-			{
-				var card = entity.Card;
-				return new ShopCardInfo(entity.Id, entity.CardId ?? "", entity.ZonePosition, card,
-					entity.IsMinion && ShopSlotEntity(entity),
-					entity.IsSpell || card.TypeEnum == CardType.BATTLEGROUND_SPELL);
-			}
 
 			public static ShopCardInfo FromMirror(BoardCard boardCard)
 			{

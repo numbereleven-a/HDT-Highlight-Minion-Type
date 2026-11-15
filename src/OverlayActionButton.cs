@@ -8,6 +8,7 @@ namespace HDTHighlightMinionType
 	internal sealed class OverlayActionButton : Border
 	{
 		private readonly TextBlock _label;
+		private MouseButton? _pressedButton;
 
 		public OverlayActionButton(string text, string tooltip)
 		{
@@ -63,6 +64,7 @@ namespace HDTHighlightMinionType
 		protected override void OnMouseLeave(MouseEventArgs e)
 		{
 			base.OnMouseLeave(e);
+			_pressedButton = null;
 			Opacity = 1.0;
 		}
 
@@ -70,6 +72,7 @@ namespace HDTHighlightMinionType
 		{
 			base.OnMouseDown(e);
 			if(!IsEnabled) return;
+			_pressedButton = e.ChangedButton;
 			Opacity = 0.68;
 			e.Handled = true;
 		}
@@ -77,9 +80,11 @@ namespace HDTHighlightMinionType
 		protected override void OnMouseUp(MouseButtonEventArgs e)
 		{
 			base.OnMouseUp(e);
+			var matchesPress = _pressedButton == e.ChangedButton;
+			_pressedButton = null;
 			if(!IsEnabled) return;
 			Opacity = IsMouseOver ? 0.88 : 1.0;
-			Click?.Invoke(this, e);
+			if(matchesPress) Click?.Invoke(this, e);
 			e.Handled = true;
 		}
 	}

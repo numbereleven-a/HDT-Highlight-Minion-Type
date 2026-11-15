@@ -1,8 +1,12 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
+using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Xml.Serialization;
 using HDTHighlightMinionType;
 
@@ -10,6 +14,7 @@ internal static class Program
 {
 	private static int _failures;
 
+	[STAThread]
 	private static void Main()
 	{
 		NothingSelectedDoesNotMatch();
@@ -37,6 +42,9 @@ internal static class Program
 		RequiredSnapshotRejectsCachedCards();
 		SnapshotReadsInvalidateOldCards();
 		RecoveryRequiresConfirmedShopping();
+		DelayedGameHandleDoesNotEmitSecondStart();
+		OverlayButtonRequiresMatchingPressAndRelease();
+		SettingsPreviewKeepsOpaqueCardUnderZeroDim();
 
 		if(_failures > 0)
 			throw new Exception(_failures + " tests failed.");
@@ -239,16 +247,14 @@ internal static class Program
 
 	private static void VisibleShopSourceSurvivesReconnectReset()
 	{
-		Check(ShopCardSourcePolicy.Select(true, true, 4, 4, 4) == ShopCardSource.None,
-			nameof(VisibleShopSourceSurvivesReconnectReset), "recovery must invalidate cached cards independently of selection");
-		Check(ShopCardSourcePolicy.Select(true, false, 0, 7, 7) == ShopCardSource.None,
-			nameof(VisibleShopSourceSurvivesReconnectReset), "stale tracked entities must not be used while the visible board is being restored");
-		Check(ShopCardSourcePolicy.Select(false, true, 7, 7, 7) == ShopCardSource.HearthMirror,
-			nameof(VisibleShopSourceSurvivesReconnectReset), "the current visible board should replace replayed entities after reconnect");
-		Check(ShopCardSourcePolicy.Select(false, false, 0, 7, 7) == ShopCardSource.TrackedEntities,
-			nameof(VisibleShopSourceSurvivesReconnectReset), "tracked entities should remain a startup fallback when HearthMirror is unavailable");
-		Check(ShopCardSourcePolicy.Select(false, true, 6, 7, 7) == ShopCardSource.None,
-			nameof(VisibleShopSourceSurvivesReconnectReset), "a mismatched live snapshot must wait instead of falling back to stale replay data");
+		Check(ShopCardSourcePolicy.Select(false, 4, 4) == ShopCardSource.None,
+			nameof(VisibleShopSourceSurvivesReconnectReset), "unavailable snapshot must reject cached cards");
+		Check(ShopCardSourcePolicy.Select(false, 0, 7) == ShopCardSource.None,
+			nameof(VisibleShopSourceSurvivesReconnectReset), "unavailable snapshot must wait until HearthMirror is current");
+		Check(ShopCardSourcePolicy.Select(true, 7, 7) == ShopCardSource.HearthMirror,
+			nameof(VisibleShopSourceSurvivesReconnectReset), "the current visible board should drive highlights when counts match");
+		Check(ShopCardSourcePolicy.Select(true, 6, 7) == ShopCardSource.None,
+			nameof(VisibleShopSourceSurvivesReconnectReset), "a mismatched live snapshot must wait");
 	}
 
 	private static void HighlightLayerStaysHiddenBetweenHoveredCards()
@@ -294,7 +300,7 @@ internal static class Program
 
 	private static void RequiredSnapshotRejectsCachedCards()
 	{
-		Check(ShopCardSourcePolicy.Select(true, true, 2, 2, 2) == ShopCardSource.None,
+		Check(ShopCardSourcePolicy.Select(false, 2, 2) == ShopCardSource.None,
 			nameof(RequiredSnapshotRejectsCachedCards), "old same-size snapshot must not survive invalidation");
 	}
 
@@ -315,7 +321,7 @@ internal static class Program
 			catch(InvalidOperationException) { }
 			Check(snapshot.Cards.Count == 0, nameof(SnapshotReadsInvalidateOldCards), failure);
 			Check(snapshot.IsCurrent(now) == (failure == "empty"), nameof(SnapshotReadsInvalidateOldCards), "valid empty differs from failed read");
-			Check(ShopCardSourcePolicy.Select(!snapshot.IsCurrent(now), snapshot.IsCurrent(now), snapshot.Cards.Count, 2, 2) == ShopCardSource.None,
+			Check(ShopCardSourcePolicy.Select(snapshot.IsCurrent(now), snapshot.Cards.Count, 2) == ShopCardSource.None,
 				nameof(SnapshotReadsInvalidateOldCards), "same-size old geometry cannot revive old cards");
 			snapshot.Read(() => new[] { "DRAGON", "BEAST" }, now);
 			Check(snapshot.Cards[1] == "BEAST", nameof(SnapshotReadsInvalidateOldCards), "new same-size list replaces old order");
@@ -347,6 +353,62 @@ internal static class Program
 		phase.Reset();
 		phase.Resolve(true, Guid.NewGuid(), false, false, now.AddMinutes(5));
 		Check(!phase.IsRecovering && !phase.CanHighlight, nameof(RecoveryRequiresConfirmedShopping), "new game does not inherit phase");
+	}
+
+	private static void DelayedGameHandleDoesNotEmitSecondStart()
+	{
+		var sut = new BattlegroundsSessionTracker();
+		var match2GameId = Guid.NewGuid();
+		Check(sut.Update(true, false, "match-1", Guid.NewGuid()) == BattlegroundsSessionChange.Started,
+			nameof(DelayedGameHandleDoesNotEmitSecondStart), "first match starts");
+		sut.Update(false, true, "match-1", null);
+		Check(sut.Update(true, false, "", match2GameId) == BattlegroundsSessionChange.Started,
+			nameof(DelayedGameHandleDoesNotEmitSecondStart), "new match after menu starts even before handle arrives");
+		Check(sut.Update(true, false, "match-2", match2GameId) == BattlegroundsSessionChange.None,
+			nameof(DelayedGameHandleDoesNotEmitSecondStart), "arriving handle for the already-started match must not emit Started twice");
+	}
+
+	private static void OverlayButtonRequiresMatchingPressAndRelease()
+	{
+		var button = new OverlayActionButton("Be", "Beast");
+		var clicks = 0;
+		button.Click += (_, __) => clicks++;
+		var mouse = InputManager.Current.PrimaryMouseDevice;
+
+		button.RaiseEvent(new MouseButtonEventArgs(mouse, 0, MouseButton.Left) { RoutedEvent = UIElement.MouseUpEvent });
+		Check(clicks == 0, nameof(OverlayButtonRequiresMatchingPressAndRelease), "release without press must not click");
+
+		button.RaiseEvent(new MouseButtonEventArgs(mouse, 0, MouseButton.Left) { RoutedEvent = UIElement.MouseDownEvent });
+		button.RaiseEvent(new MouseEventArgs(mouse, 0) { RoutedEvent = UIElement.MouseLeaveEvent });
+		button.RaiseEvent(new MouseButtonEventArgs(mouse, 0, MouseButton.Left) { RoutedEvent = UIElement.MouseUpEvent });
+		Check(clicks == 0, nameof(OverlayButtonRequiresMatchingPressAndRelease), "leaving before release must cancel click");
+
+		button.RaiseEvent(new MouseButtonEventArgs(mouse, 0, MouseButton.Left) { RoutedEvent = UIElement.MouseDownEvent });
+		button.RaiseEvent(new MouseButtonEventArgs(mouse, 0, MouseButton.Right) { RoutedEvent = UIElement.MouseUpEvent });
+		Check(clicks == 0, nameof(OverlayButtonRequiresMatchingPressAndRelease), "mismatched mouse button must not click");
+
+		button.RaiseEvent(new MouseButtonEventArgs(mouse, 0, MouseButton.Left) { RoutedEvent = UIElement.MouseDownEvent });
+		button.RaiseEvent(new MouseButtonEventArgs(mouse, 0, MouseButton.Left) { RoutedEvent = UIElement.MouseUpEvent });
+		Check(clicks == 1, nameof(OverlayButtonRequiresMatchingPressAndRelease), "matching press and release must click");
+	}
+
+	private static void SettingsPreviewKeepsOpaqueCardUnderZeroDim()
+	{
+		var settings = new PluginSettings { HighlightStyle = HighlightStyle.Combo, DimStrength = 0 };
+		var saved = 0;
+		var window = new SettingsWindow(settings, () => { }, () => { }, () => saved++);
+		var previewOther = (Border)typeof(SettingsWindow).GetField("_previewOther", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+		var previewOtherDim = (Border)typeof(SettingsWindow).GetField("_previewOtherDim", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+		var cardColor = ((SolidColorBrush)previewOther.Background).Color;
+		var dimColor = ((SolidColorBrush)previewOtherDim.Background).Color;
+		Check(cardColor.A == 255, nameof(SettingsPreviewKeepsOpaqueCardUnderZeroDim), "base card preview must remain opaque at 0% dim");
+		Check(dimColor.A == 0, nameof(SettingsPreviewKeepsOpaqueCardUnderZeroDim), "dim overlay must be transparent at 0% dim");
+
+		var colorText = (TextBox)typeof(SettingsWindow).GetField("_colorText", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+		colorText.Text = "#FFFF0000";
+		window.Close();
+		Check(settings.GlowColor == "#FFFF0000", nameof(SettingsPreviewKeepsOpaqueCardUnderZeroDim), "closing window must apply typed color");
+		Check(saved == 1, nameof(SettingsPreviewKeepsOpaqueCardUnderZeroDim), "closing window must flush save");
 	}
 
 	private static void WithTemporaryDirectory(Action<string> test)

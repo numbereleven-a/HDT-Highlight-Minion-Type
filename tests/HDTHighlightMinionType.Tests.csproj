@@ -11,8 +11,12 @@
     <PathMap>$(MSBuildProjectDirectory)=/_/HDTHighlightMinionType.Tests</PathMap>
     <HdtReferencePath Condition=" '$(HDT_PATH)' != '' And Exists('$(HDT_PATH)\Hearthstone Deck Tracker.exe') ">$(HDT_PATH)\Hearthstone Deck Tracker.exe</HdtReferencePath>
     <HdtReferencePath Condition=" '$(HDT_PATH)' != '' And Exists('$(HDT_PATH)\HearthstoneDeckTracker.exe') ">$(HDT_PATH)\HearthstoneDeckTracker.exe</HdtReferencePath>
+    <HdtReferencePath Condition=" '$(HDT_PATH)' == '' And Exists('$(LOCALAPPDATA)\HearthstoneDeckTracker\Hearthstone Deck Tracker.exe') ">$(LOCALAPPDATA)\HearthstoneDeckTracker\Hearthstone Deck Tracker.exe</HdtReferencePath>
+    <HdtReferencePath Condition=" '$(HDT_PATH)' == '' And Exists('$(LOCALAPPDATA)\HearthstoneDeckTracker\HearthstoneDeckTracker.exe') ">$(LOCALAPPDATA)\HearthstoneDeckTracker\HearthstoneDeckTracker.exe</HdtReferencePath>
     <HearthDbReferencePath Condition=" '$(HDT_PATH)' != '' ">$(HDT_PATH)\HearthDb.dll</HearthDbReferencePath>
+    <HearthDbReferencePath Condition=" '$(HDT_PATH)' == '' And Exists('$(LOCALAPPDATA)\HearthstoneDeckTracker\HearthDb.dll') ">$(LOCALAPPDATA)\HearthstoneDeckTracker\HearthDb.dll</HearthDbReferencePath>
     <HearthMirrorReferencePath Condition=" '$(HDT_PATH)' != '' ">$(HDT_PATH)\HearthMirror.dll</HearthMirrorReferencePath>
+    <HearthMirrorReferencePath Condition=" '$(HDT_PATH)' == '' And Exists('$(LOCALAPPDATA)\HearthstoneDeckTracker\HearthMirror.dll') ">$(LOCALAPPDATA)\HearthstoneDeckTracker\HearthMirror.dll</HearthMirrorReferencePath>
   </PropertyGroup>
   <ItemGroup>
 	<ProjectReference Include="..\src\HDTHighlightMinionType.csproj" />

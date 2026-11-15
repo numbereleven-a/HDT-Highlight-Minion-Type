@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using Hearthstone_Deck_Tracker.Plugins;
@@ -39,11 +40,15 @@ namespace HDTHighlightMinionType
 			_loaded = false;
 			_session.Reset();
 			_phase.Reset();
-			InvokeUi(() =>
+			try
 			{
-				_settingsWindow?.Close(); _settingsWindow = null;
-				_overlay?.Detach(); _overlay = null;
-			});
+				InvokeUi(() =>
+				{
+					_settingsWindow?.Close(); _settingsWindow = null;
+					_overlay?.Detach(); _overlay = null;
+				});
+			}
+			catch(Exception ex) { Diagnostics.Warn("Overlay cleanup failed on unload: " + ex.Message); }
 			_settings.Save();
 			Diagnostics.Info("Unloaded.");
 		}
@@ -122,7 +127,13 @@ namespace HDTHighlightMinionType
 		private static void InvokeUi(Action action)
 		{
 			var dispatcher = Application.Current?.Dispatcher;
-			if(dispatcher == null || dispatcher.CheckAccess()) action(); else dispatcher.Invoke(action);
+			if(dispatcher == null)
+			{
+				if(Thread.CurrentThread.GetApartmentState() == ApartmentState.STA) action();
+				return;
+			}
+			if(dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished) return;
+			if(dispatcher.CheckAccess()) action(); else dispatcher.Invoke(action);
 		}
 	}
 }

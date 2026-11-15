@@ -47,6 +47,7 @@ namespace HDTHighlightMinionType
 			_hasSession = true;
 			_wasActive = true;
 			_sawMenu = false;
+			if(change == BattlegroundsSessionChange.Started) _stableMatchId = "";
 			if(!string.IsNullOrEmpty(stableMatchId)) _stableMatchId = stableMatchId;
 			if(gameId.HasValue) _gameId = gameId;
 			return change;

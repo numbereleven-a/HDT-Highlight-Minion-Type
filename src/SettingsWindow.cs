@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 
@@ -12,6 +13,7 @@ namespace HDTHighlightMinionType
 		private readonly PluginSettings _settings;
 		private readonly Action _apply;
 		private readonly Action _reset;
+		private readonly Action _save;
 		private readonly DispatcherTimer _saveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
 		private readonly TextBlock _opacityValue = new TextBlock();
 		private readonly TextBlock _scaleValue = new TextBlock();
@@ -22,13 +24,17 @@ namespace HDTHighlightMinionType
 		private readonly Border _colorPreview = new Border { Width = 28, Height = 22, CornerRadius = new CornerRadius(4), BorderBrush = Brushes.Gray, BorderThickness = new Thickness(1) };
 		private readonly TextBlock _updateStatus = new TextBlock { Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
 		private readonly Border _previewMatch = CreatePreviewCard("MATCH");
-		private readonly Border _previewOther = CreatePreviewCard("OTHER");
+		private readonly Border _previewOtherDim = new Border { CornerRadius = new CornerRadius(29), IsHitTestVisible = false };
+		private readonly Border _previewOther;
+		private bool _closed;
 
-		public SettingsWindow(PluginSettings settings, Action apply, Action reset)
+		public SettingsWindow(PluginSettings settings, Action apply, Action reset, Action? save = null)
 		{
 			_settings = settings;
 			_apply = apply;
 			_reset = reset;
+			_save = save ?? settings.Save;
+			_previewOther = CreatePreviewCard("OTHER", _previewOtherDim);
 			Title = "Highlight Minion Type — Options";
 			Width = 540;
 			Height = 790;
@@ -36,7 +42,13 @@ namespace HDTHighlightMinionType
 			WindowStartupLocation = WindowStartupLocation.CenterOwner;
 			Background = new SolidColorBrush(Color.FromRgb(245, 247, 250));
 			_saveTimer.Tick += (_, __) => FlushSave();
-			Closed += (_, __) => FlushSave();
+			Closed += (_, __) =>
+			{
+				_closed = true;
+				if(!string.Equals(_colorText.Text, _settings.GlowColor, StringComparison.Ordinal))
+					ApplyTypedColor();
+				FlushSave();
+			};
 			Content = BuildContent();
 			UpdateLabels();
 		}
@@ -64,6 +76,12 @@ namespace HDTHighlightMinionType
 
 			_colorText.Text = _settings.GlowColor;
 			_colorText.LostFocus += (_, __) => ApplyTypedColor();
+			_colorText.KeyDown += (_, e) =>
+			{
+				if(e.Key != Key.Enter) return;
+				ApplyTypedColor();
+				e.Handled = true;
+			};
 			var choose = new System.Windows.Controls.Button { Content = "Choose…", Padding = new Thickness(8, 3, 8, 3) };
 			choose.Click += ChooseColor;
 			var colorPanel = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
@@ -103,6 +121,7 @@ namespace HDTHighlightMinionType
 				try
 				{
 					var result = await UpdateChecker.CheckAsync(DisplayVersion);
+					if(_closed) return;
 					_updateStatus.Text = result.Message;
 					if(result.IsNewer)
 					{
@@ -120,10 +139,11 @@ namespace HDTHighlightMinionType
 				}
 				catch(Exception ex)
 				{
+					if(_closed) return;
 					_updateStatus.Text = "Update check failed: " + ex.Message;
 					Diagnostics.WarnThrottled("update-ui", "Update check failed: " + ex.Message, TimeSpan.FromSeconds(30));
 				}
-				finally { check.IsEnabled = true; }
+				finally { if(!_closed) check.IsEnabled = true; }
 			};
 			var versionRow = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Left };
 			versionRow.Children.Add(check); versionRow.Children.Add(version);
@@ -195,7 +215,7 @@ namespace HDTHighlightMinionType
 		private void FlushSave()
 		{
 			_saveTimer.Stop();
-			_settings.Save();
+			_save();
 		}
 
 		private void UpdateLabels()
@@ -220,15 +240,25 @@ namespace HDTHighlightMinionType
 			_previewMatch.BorderThickness = glow ? new Thickness(3) : new Thickness(1);
 			_previewMatch.Opacity = 1;
 			_previewMatch.Effect = glow ? new System.Windows.Media.Effects.DropShadowEffect { Color = color, BlurRadius = 14, ShadowDepth = 0, Opacity = 0.8 * effectiveBorderOpacity } : null;
-			_previewOther.Background = new SolidColorBrush(dim
-				? Color.FromArgb((byte)Math.Round(255 * _settings.DimStrength * _settings.HighlightOpacity), 13, 16, 21)
-				: Color.FromRgb(62, 76, 96));
+			_previewOther.Background = new SolidColorBrush(Color.FromRgb(62, 76, 96));
 			_previewOther.BorderBrush = new SolidColorBrush(Color.FromRgb(118, 133, 153));
 			_previewOther.Opacity = 1;
+			_previewOtherDim.Background = new SolidColorBrush(dim
+				? Color.FromArgb((byte)Math.Round(255 * _settings.DimStrength * _settings.HighlightOpacity), 0, 0, 0)
+				: Colors.Transparent);
 		}
 
-		private static Border CreatePreviewCard(string text)
+		private static Border CreatePreviewCard(string text, UIElement? overlay = null)
 		{
+			var label = new TextBlock { Text = text, Foreground = Brushes.White, FontWeight = FontWeights.SemiBold, FontSize = 10, HorizontalAlignment = System.Windows.HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+			UIElement child = label;
+			if(overlay != null)
+			{
+				var grid = new Grid();
+				grid.Children.Add(label);
+				grid.Children.Add(overlay);
+				child = grid;
+			}
 			return new Border
 			{
 				Width = 74,
@@ -238,7 +268,7 @@ namespace HDTHighlightMinionType
 				Background = new SolidColorBrush(Color.FromRgb(62, 76, 96)),
 				BorderBrush = new SolidColorBrush(Color.FromRgb(118, 133, 153)),
 				BorderThickness = new Thickness(1),
-				Child = new TextBlock { Text = text, Foreground = Brushes.White, FontWeight = FontWeights.SemiBold, FontSize = 10, HorizontalAlignment = System.Windows.HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+				Child = child
 			};
 		}
 
