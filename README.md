@@ -1,5 +1,12 @@
 # HDT Highlight Minion Type
 
+> [!WARNING]
+> **Hearthstone Deck Tracker (HDT) is ending plugin support on November 30, 2026.**
+>
+> Starting on that date, HDT will no longer load installed plugins or allow new plugins to be installed.
+>
+> [Read HearthSim’s official announcement](https://help.hearthsim.net/en/articles/18470784-what-s-changing-about-plugins-in-hdt)
+
 HDT Highlight Minion Type is a plugin for [Hearthstone Deck Tracker](https://github.com/HearthSim/Hearthstone-Deck-Tracker) that highlights Battlegrounds minions of selected types in Bob's Tavern during the shopping phase.
 
 The plugin helps you quickly find matching minions without highlighting your hand or warband. It is intended for the Windows version of HDT.
